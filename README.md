@@ -1,49 +1,59 @@
-# Interactive Rubik's Cube
+# Three.js Rubik's Cube
 
-A 3D interactive Rubik's Cube built with Three.js.
+An interactive 3D Rubik's Cube implementation using Three.js.
 
 ## Features
-- Full 3D visualization with realistic colors and bevels
-- Keyboard and mouse controls
-- Timer functionality
-- Scramble generator
+
+- Realistic 3D rendering with proper lighting and shadows
+- Intuitive drag controls for cube manipulation
+- Visual feedback with section highlighting
+- Timer to track solving speed
+- Scramble function
 - Auto-solve feature
-- Mobile-friendly design
 
 ## Controls
-- **Mouse**: Click and drag faces to rotate
-- **Right Click**: Orbit camera
-- **Scroll**: Zoom in/out
 
-### Keyboard Controls
-Primary Keys:
-- `I`: Up face
-- `K`: Down face
-- `J`: Left face
-- `L`: Right face
-- `Space`: Front face
-- `H`: Back face
+### Basic Controls
+- **Right Click + Drag**: Rotate face sections
+- **Left Click + Drag**: Orbit/rotate the camera view
+- **Hover**: Highlights the section you're pointing at
 
-Modifiers:
-- `Shift`: Counter-clockwise rotation
-- `Alt`: Double rotation (180°)
+### How to Move Sections
+1. Hover over any section you want to rotate (it will highlight in green)
+2. Right-click and hold on that section
+3. Drag in the direction you want to rotate:
+   - Drag up/down to rotate columns
+   - Drag left/right to rotate rows
 
-## Technologies Used
-- Three.js
-- Tween.js
-- HTML5/CSS3
-- JavaScript (ES6+)
+### Additional Features
+- **Scramble**: Automatically scrambles the cube when starting a new game
+- **Solve Button**: Automatically solves the cube (for when you're stuck!)
+- **Timer**: Tracks your solving time
+- **Fixed Camera Distance**: Maintains optimal viewing distance
 
-## Development
-To run locally:
-1. Clone the repository
-2. Open index.html in a web server
-3. Start solving!
+## Technical Details
 
-## Live Demo
-Check out the live demo at [https://rubiks-cube-hxu.vercel.app/](https://rubiks-cube-hxu.vercel.app/)
+Built using:
+- Three.js for 3D rendering
+- Tween.js for smooth animations
+- Custom face detection and rotation logic
+- Responsive design that works on various screen sizes
+
+## Getting Started
+
+1. Click the "Start Solving" button to begin
+2. The cube will be scrambled automatically
+3. Use the controls to try solving the cube
+4. The timer will track your progress
+5. Complete the cube to see your solving time!
+
+## Tips
+
+- Watch the green highlight to see which section you're about to move
+- Use the camera orbit (left-click drag) to get better angles
+- Practice the basic movements to build muscle memory
 
 ## License
 MIT License - feel free to use and modify! 
 
-PS: I know the code is not perfect, but I'm a beginner and I'm still learning.
+PS: I updated the controls to be more intuitive, as a lot of people were confused by the original controls.

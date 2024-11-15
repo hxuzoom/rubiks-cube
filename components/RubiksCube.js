@@ -18,6 +18,7 @@ export class RubiksCube {
         this.dragEndPoint = new THREE.Vector2();
         this.selectedFace = null;
         this.raycaster = new THREE.Raycaster();
+        this.dragThreshold = 5;
         
         this.timerStarted = false;
         this.startTime = null;
@@ -26,20 +27,24 @@ export class RubiksCube {
         this.solveButton = document.getElementById('cheat-button');
         this.completionModal = document.getElementById('completion-modal');
         
+        this.dragStart = new THREE.Vector2();
+        this.dragCurrent = new THREE.Vector2();
+        this.selectedCubelet = null;
+        this.selectedFaceNormal = null;
+        
         this.createCube();
         this.setupControls();
         this.setupModal();
     }
 
     setupControls() {
-        document.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        document.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        document.addEventListener('mouseup', () => this.onMouseUp());
-        document.addEventListener('keydown', (e) => this.onKeyDown(e));
+        document.addEventListener('touchstart', (e) => this.onTouchStart(e));
+        document.addEventListener('touchmove', (e) => this.onTouchMove(e));
+        document.addEventListener('touchend', () => this.onTouchEnd());
     }
 
     startTimer() {
-        if (!this.timerStarted) {
+        if (!this.timerStarted && this.moveHistory.length === 0) {
             this.timerStarted = true;
             this.startTime = Date.now();
             document.getElementById('phase-label').style.display = 'none';
@@ -66,113 +71,28 @@ export class RubiksCube {
         }
     }
 
-    onMouseDown(event) {
-        if (this.isAnimating) return;
-        
-        this.isDragging = true;
-        this.dragStartPoint.set(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1
-        );
-        
-        this.raycaster.setFromCamera(this.dragStartPoint, window.camera);
-        const intersects = this.raycaster.intersectObjects(this.cubelets);
-        
-        if (intersects.length > 0 && intersects[0].face) {
-            const intersection = intersects[0];
-            const normal = intersection.face.normal.clone();
-            normal.transformDirection(intersection.object.matrixWorld);
-            this.selectedFace = this.getNearestFace(normal);
-        }
+    onTouchStart(event) {
+        event.preventDefault();
+        const touch = event.touches[0];
+        const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+        });
+        this.onMouseDown(mouseEvent);
     }
 
-    onMouseMove(event) {
-        if (!this.isDragging || !this.selectedFace || this.isAnimating) return;
-        
-        this.dragEndPoint.set(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1
-        );
-        
-        const dragDelta = this.dragEndPoint.clone().sub(this.dragStartPoint);
-        
-        if (dragDelta.length() > 0.1) {
-            const move = this.determineMove(this.selectedFace, dragDelta);
-            if (move) {
-                this.animateMove(move);
-                this.isDragging = false;
-                this.selectedFace = null;
-            }
-        }
+    onTouchMove(event) {
+        event.preventDefault();
+        const touch = event.touches[0];
+        const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+        });
+        this.onMouseMove(mouseEvent);
     }
 
-    onMouseUp() {
-        this.isDragging = false;
-        this.selectedFace = null;
-    }
-
-    determineMove(face, dragDelta) {
-        const camera = window.camera;
-        const cameraRight = new THREE.Vector3(1, 0, 0);
-        const cameraUp = new THREE.Vector3(0, 1, 0);
-        cameraRight.applyQuaternion(camera.quaternion);
-        cameraUp.applyQuaternion(camera.quaternion);
-        
-        const worldDelta = new THREE.Vector3()
-            .addScaledVector(cameraRight, dragDelta.x)
-            .addScaledVector(cameraUp, dragDelta.y);
-        
-        const moves = {
-            'F': { x: 'R', y: 'U' },
-            'B': { x: 'L', y: 'U' },
-            'U': { x: 'R', y: 'F' },
-            'D': { x: 'R', y: 'B' },
-            'L': { x: 'B', y: 'U' },
-            'R': { x: 'F', y: 'U' }
-        };
-        
-        const dominantAxis = Math.abs(worldDelta.x) > Math.abs(worldDelta.y) ? 'x' : 'y';
-        const direction = dominantAxis === 'x' ? 
-            (worldDelta.x > 0 ? '' : '\'') :
-            (worldDelta.y > 0 ? '' : '\'');
-        
-        return moves[face][dominantAxis] + direction;
-    }
-
-    onKeyDown(event) {
-        if (this.isAnimating) return;
-        
-        const keyMoves = {
-            'KeyF': 'F',
-            'KeyB': 'B',
-            'KeyR': 'R',
-            'KeyL': 'L',
-            'KeyU': 'U',
-            'KeyD': 'D',
-            'KeyI': 'U',
-            'KeyK': 'D',
-            'KeyJ': 'L',
-            'KeyL': 'R',
-            'Space': 'F',
-            'KeyH': 'B',
-            'ShiftLeft': '\'',
-            'ShiftRight': '\'',
-            'AltLeft': '2',
-            'AltRight': '2'
-        };
-        
-        if (keyMoves[event.code]) {
-            this.startTimer();
-            
-            const move = keyMoves[event.code];
-            if (move === '\'' || move === '2') return;
-            
-            let modifier = '';
-            if (event.shiftKey) modifier = '\'';
-            else if (event.altKey) modifier = '2';
-            
-            this.animateMove(move + modifier);
-        }
+    onTouchEnd() {
+        this.onMouseUp();
     }
 
     createCube() {
@@ -215,9 +135,10 @@ export class RubiksCube {
                             polygonOffsetUnits: 1
                         }));
                     }
-
+                    
                     const cubelet = new THREE.Mesh(geometry, materials);
                     
+                    // Add edges and bevel
                     const edges = new THREE.EdgesGeometry(geometry);
                     const edgeMaterial = new THREE.LineBasicMaterial({ 
                         color: 0x000000, 
@@ -238,8 +159,8 @@ export class RubiksCube {
                         opacity: 0.3
                     });
                     const bevel = new THREE.Mesh(bevelGeometry, bevelMaterial);
+                    
                     cubelet.add(bevel);
-
                     cubelet.add(edgeLines);
                     cubelet.position.set(
                         x * (size + gap),
@@ -247,18 +168,14 @@ export class RubiksCube {
                         z * (size + gap)
                     );
                     
-                    cubelet.rotation.x = Math.random() * 0.01;
-                    cubelet.rotation.y = Math.random() * 0.01;
-                    cubelet.rotation.z = Math.random() * 0.01;
-                    
                     this.cubelets.push(cubelet);
                     this.group.add(cubelet);
                 }
             }
         }
 
-        this.group.rotation.x = 0.2;
-        this.group.rotation.y = -0.4;
+        this.group.rotation.x = 0;
+        this.group.rotation.y = 0;
     }
 
     setupModal() {
@@ -297,7 +214,7 @@ export class RubiksCube {
 
     scramble() {
         const moves = this.scrambler.generateScramble(25);
-        this.moveHistory = [...moves];
+        this.moveHistory = [];
         
         const fastRotationSpeed = this.rotationSpeed;
         this.rotationSpeed = this.rotationSpeed / 3;
@@ -308,6 +225,11 @@ export class RubiksCube {
 
         setTimeout(() => {
             this.rotationSpeed = fastRotationSpeed;
+            this.timerStarted = false;
+            this.startTime = null;
+            document.getElementById('timer').textContent = '00:00.000';
+            document.getElementById('timer').style.display = 'none';
+            document.getElementById('phase-label').style.display = 'block';
         }, moves.length * (this.rotationSpeed * 1000));
     }
 
@@ -415,6 +337,10 @@ export class RubiksCube {
     }
 
     isCubeSolved() {
+        if (!this.timerStarted) {
+            return false;
+        }
+
         const faces = {
             'F': new THREE.Vector3(0, 0, 1),
             'B': new THREE.Vector3(0, 0, -1),
@@ -426,15 +352,20 @@ export class RubiksCube {
 
         for (const [face, normal] of Object.entries(faces)) {
             const cubelets = this.getCubeletsInFace(face);
+            if (cubelets.length !== 9) return false;
+            
             const firstColor = cubelets[0].material[this.getFaceIndex(face)].color.getHex();
             
             for (const cubelet of cubelets) {
-                if (cubelet.material[this.getFaceIndex(face)].color.getHex() !== firstColor) {
+                const faceIndex = this.getFaceIndex(face);
+                if (!cubelet.material[faceIndex] || 
+                    cubelet.material[faceIndex].color.getHex() !== firstColor) {
                     return false;
                 }
             }
         }
-        return true;
+
+        return this.moveHistory.length > 0;
     }
 
     getFaceIndex(face) {
@@ -466,5 +397,226 @@ export class RubiksCube {
             this.resetGame();
             this.scramble();
         };
+    }
+
+    handleRightClickDragStart(intersection, event) {
+        if (!intersection || !intersection.point) return;
+        
+        // Get the clicked point in world coordinates
+        const point = intersection.point;
+        const cubelet = intersection.object;
+        
+        // Calculate which face was clicked by finding the largest component
+        const localPoint = point.clone().sub(cubelet.position);
+        const absX = Math.abs(localPoint.x);
+        const absY = Math.abs(localPoint.y);
+        const absZ = Math.abs(localPoint.z);
+        
+        let normal = new THREE.Vector3();
+        if (absX > absY && absX > absZ) {
+            normal.x = Math.sign(localPoint.x);
+        } else if (absY > absX && absY > absZ) {
+            normal.y = Math.sign(localPoint.y);
+        } else {
+            normal.z = Math.sign(localPoint.z);
+        }
+        
+        // Store exact click position for more accurate row/column detection
+        this.clickPosition = intersection.point.clone();
+        this.selectedCubelet = cubelet;
+        this.selectedFaceNormal = normal;
+        this.dragStart.set(event.clientX, event.clientY);
+        this.dragCurrent.copy(this.dragStart);
+        
+        // Start the timer when first interacting with the cube
+        this.startTimer();
+        
+        console.log('Started drag:', {
+            clickPosition: this.clickPosition,
+            cubelet: this.selectedCubelet.position,
+            normal: this.selectedFaceNormal,
+            face: this.getNearestFace(this.selectedFaceNormal)
+        });
+    }
+
+    handleRightClickDrag(event) {
+        if (!this.selectedCubelet || this.isAnimating) return;
+        
+        this.dragCurrent.set(event.clientX, event.clientY);
+        const dragDelta = this.dragCurrent.clone().sub(this.dragStart);
+        
+        console.log('Dragging:', dragDelta.length(), 'threshold:', this.dragThreshold);
+        
+        if (dragDelta.length() > this.dragThreshold) {
+            const move = this.determineMoveFromDrag(dragDelta);
+            console.log('Determined Move:', move);
+            
+            if (move) {
+                // Convert middle slice moves to regular face moves
+                let actualMove = move;
+                switch(move) {
+                    case 'M':
+                        actualMove = 'L';
+                        break;
+                    case 'M\'':
+                        actualMove = 'L\'';
+                        break;
+                    case 'E':
+                        actualMove = 'D';
+                        break;
+                    case 'E\'':
+                        actualMove = 'D\'';
+                        break;
+                    case 'S':
+                        actualMove = 'F';
+                        break;
+                    case 'S\'':
+                        actualMove = 'F\'';
+                        break;
+                }
+                
+                this.animateMove(actualMove);
+                this.selectedCubelet = null;
+                this.selectedFaceNormal = null;
+                this.dragStart.copy(this.dragCurrent);
+            }
+        }
+    }
+
+    handleRightClickDragEnd() {
+        this.selectedCubelet = null;
+        this.selectedFaceNormal = null;
+    }
+
+    determineMoveFromDrag(dragDelta) {
+        if (!this.selectedFaceNormal || !this.selectedCubelet || !this.clickPosition) return null;
+        
+        const face = this.getNearestFace(this.selectedFaceNormal);
+        if (!face) return null;
+        
+        // Get camera orientation vectors
+        const camera = window.camera;
+        const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+        const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        const cameraForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        
+        // Convert screen drag to world space direction
+        const dragVector = new THREE.Vector3()
+            .addScaledVector(cameraRight, dragDelta.x)
+            .addScaledVector(cameraUp, -dragDelta.y)
+            .normalize();
+        
+        const isVertical = Math.abs(dragVector.dot(cameraUp)) > Math.abs(dragVector.dot(cameraRight));
+        
+        // Get clicked position relative to face center
+        const localClick = this.clickPosition.clone().sub(this.selectedCubelet.position);
+        
+        // Project click position onto face plane based on face normal
+        const faceNormal = this.selectedFaceNormal;
+        const projectedClick = localClick.clone().projectOnPlane(faceNormal);
+        
+        // Transform projected position to face local space
+        let row, column;
+        const threshold = 0.3;
+        
+        switch(face) {
+            case 'F':
+                column = projectedClick.x > threshold ? 2 : projectedClick.x < -threshold ? 0 : 1;
+                row = projectedClick.y > threshold ? 2 : projectedClick.y < -threshold ? 0 : 1;
+                break;
+            case 'B':
+                column = projectedClick.x < -threshold ? 2 : projectedClick.x > threshold ? 0 : 1;
+                row = projectedClick.y > threshold ? 2 : projectedClick.y < -threshold ? 0 : 1;
+                break;
+            case 'U':
+                column = projectedClick.x > threshold ? 2 : projectedClick.x < -threshold ? 0 : 1;
+                row = projectedClick.z > threshold ? 2 : projectedClick.z < -threshold ? 0 : 1;
+                break;
+            case 'D':
+                column = projectedClick.x > threshold ? 2 : projectedClick.x < -threshold ? 0 : 1;
+                row = projectedClick.z < -threshold ? 2 : projectedClick.z > threshold ? 0 : 1;
+                break;
+            case 'R':
+                column = projectedClick.z < -threshold ? 2 : projectedClick.z > threshold ? 0 : 1;
+                row = projectedClick.y > threshold ? 2 : projectedClick.y < -threshold ? 0 : 1;
+                break;
+            case 'L':
+                column = projectedClick.z > threshold ? 2 : projectedClick.z < -threshold ? 0 : 1;
+                row = projectedClick.y > threshold ? 2 : projectedClick.y < -threshold ? 0 : 1;
+                break;
+        }
+        
+        // Determine primary drag direction in face space
+        const dragInFaceSpace = new THREE.Vector3();
+        switch(face) {
+            case 'F':
+            case 'B':
+                dragInFaceSpace.x = dragVector.dot(cameraRight);
+                dragInFaceSpace.y = dragVector.dot(cameraUp);
+                break;
+            case 'U':
+            case 'D':
+                dragInFaceSpace.x = dragVector.dot(cameraRight);
+                dragInFaceSpace.z = -dragVector.dot(cameraForward);
+                break;
+            case 'R':
+            case 'L':
+                dragInFaceSpace.z = -dragVector.dot(cameraForward);
+                dragInFaceSpace.y = dragVector.dot(cameraUp);
+                break;
+        }
+        
+        let move = '';
+        if (isVertical) {
+            // Vertical drag - move columns
+            switch(face) {
+                case 'F':
+                case 'B':
+                    move = column === 0 ? 'L' : column === 2 ? 'R' : 'M';
+                    move += (face === 'B' ? dragInFaceSpace.y : -dragInFaceSpace.y) > 0 ? '' : '\'';
+                    break;
+                case 'U':
+                case 'D':
+                    move = row === 0 ? 'B' : row === 2 ? 'F' : 'S';
+                    move += dragInFaceSpace.y > 0 ? '' : '\'';
+                    break;
+                case 'L':
+                case 'R':
+                    move = row === 0 ? 'B' : row === 2 ? 'F' : 'S';
+                    move += (face === 'R' ? -dragInFaceSpace.y : dragInFaceSpace.y) > 0 ? '' : '\'';
+                    break;
+            }
+        } else {
+            // Horizontal drag - move rows
+            switch(face) {
+                case 'F':
+                case 'B':
+                    move = row === 0 ? 'D' : row === 2 ? 'U' : 'E';
+                    move += (face === 'B' ? -dragInFaceSpace.x : dragInFaceSpace.x) > 0 ? '' : '\'';
+                    break;
+                case 'U':
+                case 'D':
+                    move = column === 0 ? 'L' : column === 2 ? 'R' : 'M';
+                    move += (face === 'D' ? -dragInFaceSpace.x : dragInFaceSpace.x) > 0 ? '' : '\'';
+                    break;
+                case 'L':
+                case 'R':
+                    move = row === 0 ? 'D' : row === 2 ? 'U' : 'E';
+                    move += (face === 'R' ? -dragInFaceSpace.x : dragInFaceSpace.x) > 0 ? '' : '\'';
+                    break;
+            }
+        }
+        
+        console.log('Move calculation:', {
+            face,
+            isVertical,
+            dragVector,
+            dragInFaceSpace,
+            row,
+            column,
+            move
+        });
+        
+        return move;
     }
 } 
